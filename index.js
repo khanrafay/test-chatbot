@@ -64,6 +64,7 @@ const express = require("express");
 
 const app = express();
 app.use(express.json());
+const PORT = 3000;
 
 const VERIFY_TOKEN = "tazman-secret-token-321"; // must match Meta Dashboard
 
@@ -87,4 +88,13 @@ app.post("/webhook", (req, res) => {
   res.sendStatus(200); // Always reply 200
 });
 
-app.listen(3000, () => console.log("🚀 Server running on port 3000"));
+app.post("/webhook", (req, res) => {
+  console.log(JSON.stringify(req.body, null, 2))
+  res.status(200).send('Webhook processed');
+});
+
+app.listen(PORT, () => {
+  console.log(`Server is running on http://localhost:${PORT}`);
+});
+
+// app.listen(3000, () => console.log("🚀 Server running on port 3000"));

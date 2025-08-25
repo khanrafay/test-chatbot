@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 import axios from "axios";
 import { DateTime } from "luxon";
 import { connect, createPlayer, findPlayer, savePlayer, } from "./db.js";
-import { sendHiMessage } from "./messages/hi.js";
+import { sendHiMessage, sendMessage, sendInteractiveButtons } from "./messages/hi.js";
 import WS from "./websocket.js";
 import express from 'express';
 
@@ -13,13 +13,90 @@ app.use(express.json());
 const PORT = 3000;
 
 const VERIFY_TOKEN = "tazman-secret-token-321"; // must match Meta Dashboard
+const FromNumber = "715263275011455";
 
+
+let cities = [];
+let venues = [];
+let sports = [];
+
+const EmailQuestion = "Enter your email";
+const CityQuestion = "Choose a city number from list";
+const VenueQuestion = "Choose a venue number from list";
+const SportQuestion = "Choose a sport number from list";
+const DateQuestion = "Enter your preferred date";
+const TimeQuestion = "Enter your preferred time";
+const AvailabilityQuestion =
+  "Please wait while we are checking available venues against these search terms";
+const VenuesQuestion = "Select a venue number from list";
+const FacilitiesQuestion = "Select a facility number from list";
+const SlotsQuestion =
+  "Select comma separated slot numbers, and keep in mind that you have to select numbers in a range. For example 1,2,3";
+const EquipmentQuestion = "Select equipment numbers from list, or type *skip*";
+const FriendsQuestion =
+  "If you want your friends to play with you then you can enter a comma separated list of emails and we will send them game invites. Or type *skip*";
+const ConfirmationQuestion =
+  "Enter *confirm* to create booking or *C* to cancel this process";
+// const ConfirmationQuestion2 = "Once confirmed we will create a new booking for you";
+const ConfirmationQuestion3 =
+  "A new user account has been created for you. An automated email will be sent to your account shortly";
+
+let email = "";
+let date = "";
+let time = null;
+let websocketMessage = null;
+
+// // ✅ Webhook verification endpoint
+// app.get("/webhook", (req, res) => {
+//   const mode = req.query["hub.mode"];
+//   const token = req.query["hub.verify_token"];
+//   const challenge = req.query["hub.challenge"];
+
+//   if (mode === "subscribe" && token === VERIFY_TOKEN) {
+//     console.log("✅ Webhook verified!");
+//     res.status(200).send(challenge); // MUST return challenge
+//   } else {
+//     res.sendStatus(403);
+//   }
+// });
+
+// const sendTemplateMessage = async () => {
+//   try {
+//     const response = await fetch(
+//       'https://graph.facebook.com/v22.0/715263275011455/messages',
+//       {
+//         method: 'POST',
+//         headers: {
+//           'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}`,
+//           'Content-Type': 'application/json'
+//         },
+//         body: JSON.stringify({
+//           messaging_product: 'whatsapp',
+//           to: '923323604897',
+//           type: 'template',
+//           template: {
+//             name: 'hello_world',
+//             language: { code: 'en_US' }
+//           }
+//         })
+//       }
+//     );
+
+//     const data = await response.json();
+//     console.log(data);
+//   } catch (err) {
+//     console.error("Error sending message:", err);
+//   }
+// };
+
+// sendTemplateMessage();
 
 
 
 const API_URL = "https://api.tazman.pro";
 // const API_URL = "http://tazman.localhost";
 const WEB_URL = "https://tazman.pro";
+const BOOKING_WEB_URL = "https://player.tazman.pro";
 
 
 const axiosInstance = axios.create({ baseURL: API_URL });
@@ -30,7 +107,7 @@ const createSession = async () => {
     credentials: {
       type: "EMAIL_AND_PASSWORD",
       email: "admin@tazman.com",
-      password: "password",
+      password: "tazmanadmin",
     },
     role: "ROLE_ADMIN",
   });
@@ -79,7 +156,7 @@ axiosInstance.interceptors.response.use(null, (error) => {
           isGetActiveSessionRequest = false; // Very important!
           console.error("Create session error %s", e);
           clearQueue();
-          Sentry.captureException(e);
+          //Sentry.captureException(e);
         });
     }
 
@@ -143,16 +220,17 @@ export const loadData = async () => {
         name: item.name.toLowerCase(),
       };
     });
+    console.log("sports loaded", sports);
   } catch (e) {
     console.error("unable to load data", e);
-    Sentry.captureException(e)
+    // Sentry.captureException(e)
   }
 };
 
-export const loadCitiesList = async (id) => {
+const loadCitiesList = async (id) => {
   const record = await findPlayer(id);
-  const { sport } = record[0].result[0];
-
+  const { sport } = record[0];
+  console.log('spo', sport)
   try {
     const c = await request(
       `/api/tazman/search/venue/cities-keyword?sport=${sport.id}`
@@ -170,9 +248,9 @@ export const loadCitiesList = async (id) => {
   }
 };
 
-export const loadVenueKeywords = async (id) => {
+const loadVenueKeywords = async (id) => {
   const record = await findPlayer(id);
-  const { sport, city } = record[0].result[0];
+  const { sport, city } = record[0];
 
   try {
     const url = `/api/tazman/venue/search/keyword?sportId[]=${sport?.id}&cities=0&city=${city?.id}`;
@@ -190,7 +268,7 @@ export const loadVenueKeywords = async (id) => {
   }
 };
 
-export const loadCustomerInfo = async (phoneNumber) => {
+const loadCustomerInfo = async (phoneNumber) => {
   try {
     const data = await request(
       `/api/tazman/search/player/search-by-phone?phone=${phoneNumber}`
@@ -201,40 +279,40 @@ export const loadCustomerInfo = async (phoneNumber) => {
     };
   } catch (e) {
     console.error("unable to get user info by phone number");
-    Sentry.captureException(e)
+    //Sentry.captureException(e)
     console.log(e);
-    if (e.response.status === 404) {
-      // try with email as well
-      try {
-        const data = await request(
-          `/api/tazman/search/player/search-by-email?email=${phoneNumber}`
-        );
+    // if (e.response.status === 404) {
+    //   // try with email as well
+    //   try {
+    //     const data = await request(
+    //       `/api/tazman/search/player/search-by-email?email=${phoneNumber}`
+    //     );
 
-        return {
-          data: data.data.player,
-        };
-      } catch (ex) {
-        Sentry.captureException(ex)
-        console.error("unable to get user info by email either");
-        // console.log(e);
+    //     return {
+    //       data: data.data.player,
+    //     };
+    //   } catch (ex) {
+    //     Sentry.captureException(ex)
+    //     console.error("unable to get user info by email either");
+    //     // console.log(e);
 
-        return {
-          data: null,
-          error: ex.response.data.errorMessage,
-        };
-      }
-    }
+    //     return {
+    //       data: null,
+    //       error: ex.response.data.errorMessage,
+    //     };
+    //   }
+    // }
 
-    return {
-      data: null,
-      error: e.response.data.errorMessage,
-    };
+    // return {
+    //   data: null,
+    //   error: e.response.data.errorMessage,
+    // };
   }
 };
 
-export const searchVenues = async (id) => {
+const searchVenues = async (id) => {
   const record = await findPlayer(id);
-  const { date, time, q, sport } = record[0].result[0];
+  const { date, time, q, sport } = record[0];
 
   const searchQuery = {
     q: q.name,
@@ -256,7 +334,7 @@ export const searchVenues = async (id) => {
     const data = await request(`/api/tazman/venue/search`, {
       params: searchQuery,
     });
-
+    console.log('data for venues', data)
     return {
       data: data.data.venueList.map((venue) => ({
         id: venue.id,
@@ -273,9 +351,9 @@ export const searchVenues = async (id) => {
   }
 };
 
-export const searchFacilities = async (id) => {
+const searchFacilities = async (id) => {
   const record = await findPlayer(id);
-  const { venueId, sport, date, q, time } = record[0].result[0];
+  const { venueId, sport, date, q, time } = record[0];
 
   const searchQuery = {
     q: q.name,
@@ -314,9 +392,9 @@ export const searchFacilities = async (id) => {
   }
 };
 
-export const searchGears = async (id) => {
+const searchGears = async (id) => {
   const record = await findPlayer(id);
-  const { sport, venueId } = record[0].result[0];
+  const { sport, venueId } = record[0];
   try {
     const data = await request(
       `/api/tazman/equipment-item/list/venue/${venueId}?sport=${sport.id}`
@@ -334,9 +412,9 @@ export const searchGears = async (id) => {
   }
 };
 
-export const searchTimeSlots = async (id) => {
+const searchTimeSlots = async (id) => {
   const record = await findPlayer(id);
-  const { date, time, facilityId } = record[0].result[0];
+  const { date, time, facilityId } = record[0];
 
   let params = {
     date: date !== null ? date : undefined,
@@ -398,9 +476,9 @@ export const searchTimeSlots = async (id) => {
   }
 };
 
-export const registerSlot = async (id) => {
+const registerSlot = async (id) => {
   const player = await findPlayer(id);
-  const { playerId, slots, facilityId } = player[0].result[0];
+  const { playerId, slots, facilityId } = player[0];
 
   try {
     const data = {
@@ -423,10 +501,10 @@ export const registerSlot = async (id) => {
   }
 };
 
-export const clearSlots = async (id) => {
+const clearSlots = async (id) => {
   let record = await findPlayer(id);
 
-  let { facilityId, playerId, slots } = record[0].result[0];
+  let { facilityId, playerId, slots } = record[0];
 
   if (slots.length === 0) {
     return false;
@@ -458,9 +536,9 @@ export const clearSlots = async (id) => {
   }
 };
 
-export const createBookingPlayer = async (id) => {
+const createBookingPlayer = async (id) => {
   const player = await findPlayer(id);
-  const { name, email, phone } = player[0].result[0];
+  const { name, email, phone } = player[0];
 
   try {
     const newPassword = Math.floor(Math.random() * 100000000000);
@@ -494,10 +572,10 @@ export const createBookingPlayer = async (id) => {
   }
 };
 
-export const createBooking = async (id) => {
+const createBooking = async (id) => {
   const player = await findPlayer(id);
   const { slots, facilityId, playerId, sport, friends, equipments } =
-    player[0].result[0];
+    player[0];
   try {
     let calendarEntry = {
       startAt: slots[0].calendarEntry.startAt,
@@ -578,481 +656,534 @@ export const createBooking = async (id) => {
   }
 };
 
-
+let dataLoaded = false; // global flag
 
 app.post("/webhook", async (req, res) => {
+  res.sendStatus(200);
+
+  if (!dataLoaded) {
+    console.log("⏳ Loading data first time...");
+    await loadData();   // your API call
+    dataLoaded = true;  // prevent future calls
+    console.log("✅ Data loaded");
+  } else {
+    console.log("⚡ Skipping loadData, already loaded");
+  }
+
+
+  const hi = [
+    "hi",
+    "hello",
+    "aoa",
+    "salam",
+    "السلام علیکم",
+    "سلام",
+    "اسلام علیکم",
+    "سلام علیکم"
+  ];
+
+  let question = "";
+  let customer = null;
+
+  const entry = req.body.entry?.[0];
+  const changes = entry?.changes?.[0];
+  const value = changes?.value;
+  const message = value?.messages?.[0];
+  const contact = value?.contacts?.[0];
+
+  let body = message?.text?.body?.trim().toLowerCase() || "";
+  customer = contact?.profile?.name || "Unknown";
+  let id = message?.from || contact?.wa_id || "Unknown";
+
+  let info = {
+    number: contact?.wa_id || null,
+    name: contact?.profile?.name || null,
+  }
+
+  if (message?.type === "interactive") {
+    if (message?.interactive?.type === "button_reply") {
+      body = message.interactive.button_reply.id;
+    }
+    if (message?.interactive?.type === "list_reply") {
+      body = message.interactive.list_reply.id;
+    }
+  }
+
+  console.log("📩 New Webhook:");
+  console.log("customer:", customer);
+  console.log("id:", id);
+  console.log("question:", question);
+  console.log('message', message)
+  console.log("body:", body);
+
+  let record = [{ result: [] }];
   try {
-    const entry = req.body.entry?.[0];
-    const changes = entry?.changes?.[0];
-    const value = changes?.value;
+    const fetched = await findPlayer(id);
+    console.log('fetched player', fetched)
+    record = [{
+      result: fetched // wrap fetched data into .result
+    }];
+  } catch (error) {
+    console.error("Failed to fetch player:", error.message);
+  }
 
-    const phoneNumber = value?.contacts?.[0]?.wa_id;
-    const messageText = value?.messages?.[0]?.text?.body;
-    console.log('phone number', phoneNumber);
-    const hi = [
-      "hi",
-      "hello",
-      "aoa",
-      "salam",
-      "السلام علیکم",
-      "سلام",
-      "اسلام علیکم",
-      "سلام علیکم"
-    ];
+  console.log('result', record[0]);
+  var foundVenues = [],
+    foundFacilities = [],
+    foundSlots = [],
+    foundGears = [],
+    date = null,
+    facilityId = null,
+    friends = [],
+    playerId = null,
+    sport = null,
+    city = null,
+    q = null
+    ;
 
-    let question = "";
-    let customer = null;
+  var firstMessage = false;
 
-    let record = await findPlayer(phoneNumber);
+  if (record[0].result.length > 0) {
+    var {
+      foundVenues,
+      foundFacilities,
+      foundSlots,
+      foundGears,
+      facilityId: selectedFacility,
+      date,
+      playerId,
+      friends,
+      venueKeywords,
+      sportsKeywords,
+      cityKeywords,
+      sport, city, q
+    } = record[0].result[0];
+  }
+  if (record[0].result.length === 0) {
+    firstMessage = true;
 
-    var foundVenues = [],
-      foundFacilities = [],
-      foundSlots = [],
-      foundGears = [],
-      date = null,
-      facilityId = null,
-      friends = [],
-      playerId = null,
-      sport = null,
-      city = null,
-      q = null
-      ;
-
-    var firstMessage = false;
-
-    if (record[0].result.length > 0) {
-      var {
-        foundVenues,
-        foundFacilities,
-        foundSlots,
-        foundGears,
-        facilityId: selectedFacility,
-        date,
-        playerId,
-        friends,
-        venueKeywords,
-        sportsKeywords,
-        cityKeywords,
-        sport, city, q
-      } = record[0].result[0];
+    if (info.number !== null) {
+      await createPlayer(id, {
+        phone: info.number,
+        name: info.pushname,
+        question: "Hi",
+      });
     }
+  } else {
+    // get question from db
+    if (record[0].result[0]?.question) {
+      question = record[0].result[0].question;
+    }
+  }
 
-    if (record[0].result.length === 0) {
-      firstMessage = true;
+  if (info.name === undefined) {
+    // console.log("undefined detected, full info is", info);
+  }
+  if (hi.includes(body)) {
+    customer = (await loadCustomerInfo(info.number)).data;
 
-      if (info.number !== null) {
-        await createPlayer(id, {
-          phone: info.number,
-          name: info.pushname,
-          question: "Hi",
-        });
-      }
+    await savePlayer(id, {
+      question: "Hi", // reset question on first message
+      playerId: customer?.id,
+      email: customer?.email,
+    });
+
+    // await sendHiMessage(
+    //   info.number,
+    //   info.name
+    // );
+
+    await sendInteractiveButtons(info.number,
+      "Hi Abdul Rafay Khan, Welcome to Tazman.\nHow can we help you today?",
+      [
+        { id: "book_venue", title: "📍 Book a Venue" },
+        { id: "cancel", title: "❌ Cancel" },
+      ]
+    );
+
+    return;
+  } else if (body.toUpperCase() === "V" || body === "book_venue") {
+
+    if (playerId === null) {
+      question = EmailQuestion;
+      await savePlayer(id, {
+        question: EmailQuestion,
+      });
+      await sendMessage(message.from, EmailQuestion);
     } else {
-      // get question from db
-      if (record[0].result[0]?.question) {
-        question = record[0].result[0].question;
+      await sendSportsQuestion(message, body, id);
+    }
+  } else if (body.toUpperCase() === "C") {
+    await reset(id);
+
+    await sendMessage(
+      message.from,
+      "Sorry to see that.\nHow can we help you then?\nPlease reply with *V* if you want to book a venue."
+    );
+  } else {
+
+    if (question === EmailQuestion) { //|| question === record[0].result[0].question
+      // email = body;
+      if (!isValidEmail(body)) {
+        await sendMessage(
+          message.from,
+          "Invalid email address, please try again"
+        );
+        return;
       }
-    }
+      const customerData = await loadCustomerInfo(body.trim());
+      if (customerData.error) {
+        await sendMessage(message.from, customerData.error);
+        return;
+      }
 
-    // console.log(info.name, ":", message.body);
-    if (info.name === undefined) {
-      // console.log("undefined detected, full info is", info);
-    }
-
-    if (hi.includes(body) || firstMessage) {
-      customer = (await loadCustomerInfo(info.number)).data;
+      customer = customerData.data;
 
       await savePlayer(id, {
-        question: "Hi", // reset question on first message
-        playerId: customer?.id,
-        email: customer?.email,
+        email: message.body.trim(),
       });
 
-      await sendHiMessage(
-        client,
-        message,
-        customer ? customer.displayName : info.pushname
-      );
-    } else if (body.toUpperCase() === "V") {
-      if (!playerId) {
-        // question = EmailQuestion;
+      if (customer !== null) {
         await savePlayer(id, {
-          question: EmailQuestion,
+          playerId: customer.id,
         });
-        await client.sendMessage(message.from, EmailQuestion);
       } else {
-        await sendSportsQuestion(client, message, body, id);
+        //create new player instead
+        await sendMessage(message.from, "Creating new user account for you.");
+        const d = await createBookingPlayer(id);
+        customer = d;
+
+        await sendMessage(
+          message.from,
+          `Account details:\nPlease visit *${WEB_URL}* or download *Tazman* app from Google Play or App Store.\nUsername: ${d.email}\n Password: ${d.password}`
+        );
       }
-    } else if (body.toUpperCase() === "C") {
-      await reset(id);
 
-      await client.sendMessage(
-        message.from,
-        "Sorry to see that.\nHow can we help you then?\nPlease reply with *V* if you want to book a venue."
-      );
-    } else {
-      if (question === EmailQuestion) {
-        // email = body;
-        if (!isValidEmail(body)) {
-          await client.sendMessage(
-            message.from,
-            "Invalid email address, please try again"
-          );
-          return;
-        }
-        const customerData = await loadCustomerInfo(body.trim());
-        if (customerData.error) {
-          await client.sendMessage(message.from, customerData.error);
-          return;
-        }
-
-        customer = customerData.data;
-
+      await sendSportsQuestion(message, body, id);
+    } else if (question === VenueQuestion) {
+      // find in cities/venues
+      if (!venues[body.trim() - 1]) {
+        await sendMessage(
+          message.from,
+          "Sorry this number is out of range, Select a venue number from list"
+        );
+      } else {
+        // await sendSportsQuestion(message, body, id);
+        await sendDateQuestion(message, body, id);
+      }
+    } else if (question === SportQuestion) {
+      if (!sports[body.trim() - 1]) {
+        await sendMessage(
+          message.from,
+          "Sorry this number is out of range, Select a sport number from list"
+        );
+      } else {
+        console.log(
+          'elseee'
+        )
         await savePlayer(id, {
-          email: message.body.trim(),
+          sport: sports[body.trim() - 1],
         });
+        await sendCityQuestion(message, id);
+      }
+    } else if (question === CityQuestion) {
+      await sendVenueCityQuestion(message, id, body.trim());
+    } else if (question === DateQuestion) {
+      // parse date to match format
+      if (body.trim().toLowerCase() === "flexible") {
+        await sendVenuesMessage(body, message, id);
 
-        if (customer !== null) {
-          await savePlayer(id, {
-            playerId: customer.id,
-          });
-        } else {
-          //create new player instead
-          await client.sendMessage(message.from, "Creating new user account for you.");
-          const d = await createBookingPlayer(id);
-          customer = d;
-
-          await client.sendMessage(
-            message.from,
-            `Account details:\nPlease visit *${WEB_URL}* or download *Tazman* app from Google Play or App Store.\nUsername: ${d.email}\n Password: ${d.password}`
-          );
+        let today = DateTime.now().toFormat("dd-MM-yyyy");
+        if (parseInt(DateTime.now().toFormat("HH")) === 23) {
+          today = DateTime.now().plus({ day: 1 }).toFormat("dd-MM-yyyy");
         }
-
-        await sendSportsQuestion(client, message, body, id);
-      } else if (question === VenueQuestion) {
-        // find in cities/venues
-        if (!venues[body.trim() - 1]) {
-          await client.sendMessage(
+        await savePlayer(id, {
+          // question: TimeQuestion,
+          date: today,
+        });
+      } else {
+        const parseDate = DateTime.fromFormat(body, "dd-MM-yyyy");
+        if (!parseDate.isValid) {
+          await sendMessage(
             message.from,
-            "Sorry this number is out of range, Select a venue number from list"
-          );
-        } else {
-          // await sendSportsQuestion(client, message, body, id);
-          await sendDateQuestion(client, message, body, id);
-        }
-      } else if (question === SportQuestion) {
-        if (!sports[body.trim() - 1]) {
-          await client.sendMessage(
-            message.from,
-            "Sorry this number is out of range, Select a sport number from list"
+            `Invalid date, please use *${DateTime.now().toFormat(
+              "dd-MM-yyyy"
+            )}* format, or type *flexible* to skip date constraint`
           );
         } else {
-          await savePlayer(id, {
-            sport: sports[body.trim() - 1],
-          });
-          await sendCityQuestion(client, message, id);
-        }
-      } else if (question === CityQuestion) {
-        await sendVenueCityQuestion(client, message, id, body.trim());
-      } else if (question === DateQuestion) {
-        // parse date to match format
-        if (body.trim().toLowerCase() === "flexible") {
-          await sendVenuesMessage(client, body, message, id);
-
-          let today = DateTime.now().toFormat("dd-MM-yyyy");
-          if (parseInt(DateTime.now().toFormat("HH")) === 23) {
-            today = DateTime.now().plus({ day: 1 }).toFormat("dd-MM-yyyy");
-          }
-          await savePlayer(id, {
-            // question: TimeQuestion,
-            date: today,
-          });
-        } else {
-          const parseDate = DateTime.fromFormat(body, "dd-MM-yyyy");
-          if (!parseDate.isValid) {
-            await client.sendMessage(
+          if (parseDate.toFormat('dd-MM-yyyy') < DateTime.now().toFormat('dd-MM-yyyy')) {
+            await sendMessage(
               message.from,
-              `Invalid date, please use *${DateTime.now().toFormat(
+              `Past date not allowed, please use *${DateTime.now().toFormat(
                 "dd-MM-yyyy"
               )}* format, or type *flexible* to skip date constraint`
             );
-          } else {
-            if (parseDate.toFormat('dd-MM-yyyy') < DateTime.now().toFormat('dd-MM-yyyy')) {
-              await client.sendMessage(
-                message.from,
-                `Past date not allowed, please use *${DateTime.now().toFormat(
-                  "dd-MM-yyyy"
-                )}* format, or type *flexible* to skip date constraint`
-              );
-              return;
-            }
-            // question = TimeQuestion;
-            await savePlayer(id, {
-              question: TimeQuestion,
-              date: parseDate.toFormat("dd-MM-yyyy"),
-            });
-
-            await client.sendMessage(message.from, TimeQuestion);
-            await client.sendMessage(
-              message.from,
-              `Please use *${DateTime.now().toFormat(
-                "hh:mm a"
-              )}* format, or type *flexible* to skip time constraint`
-            );
-
-            // date = body;
+            return;
           }
-        }
-      } else if (question === TimeQuestion) {
-        await sendVenuesMessage(client, body, message, id);
-      } else if (question === VenuesQuestion) {
-        // get facilites from api
-        if (!foundVenues[body.trim() - 1]) {
-          await client.sendMessage(
+          // question = TimeQuestion;
+          await savePlayer(id, {
+            question: TimeQuestion,
+            date: parseDate.toFormat("dd-MM-yyyy"),
+          });
+
+          await sendMessage(message.from, TimeQuestion);
+          await sendMessage(
             message.from,
-            "Invalid venue number, Select a valid number from list"
-          );
-        } else {
-          await sendFacilitiesQuestion(client, message, body, id);
-        }
-      } else if (question === FacilitiesQuestion) {
-        if (!foundFacilities[body.trim() - 1]) {
-          await client.sendMessage(
-            message.from,
-            "Invalid facility number, Select a valid number from list"
-          );
-        } else {
-          let fac = foundFacilities[body.trim() - 1].id;
-
-          await sendSlotsQuestion(client, message, fac, id);
-        }
-      } else if (question === SlotsQuestion) {
-        if (body.trim().toLowerCase() === "next") {
-          // search in next date
-          let d = DateTime.fromFormat(date, "dd-MM-yyyy")
-            .plus({ day: 1 })
-            .toFormat("dd-MM-yyyy");
-
-          await savePlayer(id, {
-            date: d,
-          });
-          await sendSlotsQuestion(client, message, selectedFacility, id);
-        } else if (body.trim().toLowerCase() === "previous") {
-          // go back in date
-          let d = DateTime.fromFormat(date, "dd-MM-yyyy")
-            .minus({ day: 1 })
-            .toFormat("dd-MM-yyyy");
-
-          await savePlayer(id, {
-            date: d,
-          });
-          await sendSlotsQuestion(client, message, selectedFacility, id);
-        } else {
-          let slotNumbers = body.trim().split(",").sort();
-          let map = new Map();
-          slotNumbers.forEach((item) => {
-            map.set(item, item);
-          });
-
-          slotNumbers = Array.from(map.values());
-
-          // validate
-          let prev = null,
-            hasError = false;
-
-          slotNumbers.map((item) => {
-            if (prev === null) {
-              prev = item;
-            } else {
-              if (item - prev !== 1) {
-                hasError = true;
-              }
-
-              prev = item;
-            }
-          });
-
-          if (hasError) {
-            await client.sendMessage(
-              message.from,
-              "Invalid slot numbers, Select slot numbers in order, you cannot skip slots from between"
-            );
-          } else {
-            let selectedSlots = foundSlots.filter((item) => {
-              return slotNumbers.includes(item.slotNumber.toString());
-            });
-
-            if (selectedSlots.length !== slotNumbers.length) {
-              await client.sendMessage(
-                message.from,
-                "Invalid slot numbers, please try again"
-              );
-              return false;
-            }
-
-            await savePlayer(id, {
-              slots: selectedSlots,
-            });
-
-            // register slots on server
-            await registerSlot(id);
-
-            // send signal to gray out slots
-            WS.send(
-              JSON.stringify({
-                data: {
-                  facilityId: selectedFacility,
-                  playerId: playerId,
-                  slots: selectedSlots,
-                },
-                type: "blockFacilitySlots",
-              })
-            );
-
-            await sendFriendsQuestion(client, message, body, id);
-          }
-        }
-      } else if (question === EquipmentQuestion) {
-        if (body.trim().toLowerCase() === "skip") {
-          await savePlayer(id, {
-            question: ConfirmationQuestion,
-            equipments: [],
-          });
-
-
-          // client.sendMessage(
-          //   message.from,
-          //   `You have selected following items.\nSport: ${sport.name}\\nCity: ${city.name}\\nVenue: ${q.name}\\nDate: ${date}\\nTime: ${!time ? 'Flexible' : time}\n${ConfirmationQuestion}`
-          // );
-          await client.sendMessage(
-            message.from,
-            ConfirmationQuestion
-          )
-        } else {
-          // validate equipments
-          let equipmentNumbers = body.trim().split(",").sort();
-          let map = new Map();
-          equipmentNumbers.forEach((item) => {
-            map.set(item, item);
-          });
-
-          equipmentNumbers = Array.from(map.values());
-
-          let selectedEquipments = foundGears.filter((item) => {
-            return equipmentNumbers.includes(item.index.toString());
-          });
-
-          if (selectedEquipments.length !== equipmentNumbers.length) {
-            await client.sendMessage(
-              message.from,
-              "Invalid gear numbers, please try again"
-            );
-            return false;
-          }
-
-          // question = ConfirmationQuestion;
-          await savePlayer(id, {
-            question: ConfirmationQuestion,
-            equipments: selectedEquipments,
-          });
-
-          // send confirmation message
-          await client.sendMessage(message.from, ConfirmationQuestion);
-          // client.sendMessage(
-          //   message.from,
-          //   `You have selected following items.\nSport: ${sport.name}\\nCity: ${city.name}\\nVenue: ${q.name}\\nDate: ${date}\\nTime: ${!time ? 'Flexible' : time}\n${ConfirmationQuestion}`
-          // );
-        }
-      } else if (question === FriendsQuestion) {
-        if (body.trim().toLowerCase() !== "skip") {
-          let hasError = false;
-          let removedEmails = [];
-          body.split(",").forEach((item) => {
-            if (!isValidEmail(item.trim())) {
-              hasError = true;
-              removedEmails.push('❌ *' + item + '*');
-            }
-          });
-
-          if (hasError) {
-            await client.sendMessage(
-              message.from,
-              `One or more emails are invalid and are removed from list.\n${removedEmails.join(
-                ", "
-              )}`
-            );
-          }
-
-          await savePlayer(id, {
-            friends: body
-              .split(",")
-              .filter((item) => isValidEmail(item.trim()))
-              .map((item) => item.trim()),
-          });
-        }
-
-        await sendEquipmentQuestion(client, message, id);
-      } else if (question === ConfirmationQuestion) {
-        if (body.trim().toLowerCase() === "confirm") {
-          await client.sendMessage(
-            message.from,
-            "Please wait creating booking for you"
+            `Please use *${DateTime.now().toFormat(
+              "hh:mm a"
+            )}* format, or type *flexible* to skip time constraint`
           );
 
-          const res = await findPlayer(id);
-          const { playerId } = res[0].result[0];
-
-          // create player
-          let newCustomer = false;
-          if (!playerId) {
-            customer = await createBookingPlayer(id);
-            newCustomer = true;
-          }
-          // create booking
-          const r = await createBooking(id);
-
-          if (r.error) {
-            await client.sendMessage(message.from, r.error);
-
-            return false;
-          }
-
-          if (r.data !== null) {
-            await reset(id);
-
-            let reservation = r.data;
-            await client.sendMessage(
-              message.from,
-              `✔️ Booking created successfully, your booking# is *${reservation.bookingId}*. You will have to pay *SAR ${reservation.price / 100}* at the facility.`
-            );
-
-            await client.sendMessage(
-              message.from,
-              `Booking details:\n${WEB_URL}/en/whatsapp-booking-details/${reservation.id}\nFind Directions:\n${WEB_URL}/en/map?latitude=${reservation?.venueLong?.gisPoint?.latitude}&longitude=${reservation?.venueLong?.gisPoint?.longitude}`
-            );
-
-            if (newCustomer) {
-              await client.sendMessage(message.from, ConfirmationQuestion3);
-
-              await client.sendMessage(
-                message.from,
-                `Account details.\nPlease visit *${WEB_URL}* or download *Tazman* app from Google Play or App Store.\nUsername: ${customer.email}\n Password: ${customer.password}`
-              );
-            }
-          }
+          // date = body;
         }
-      } else {
-        // console.log((await chat.getContact()).pushname, message.body);
       }
+    } else if (question === TimeQuestion) {
+      await sendVenuesMessage(body, message, id);
+    } else if (question === VenuesQuestion) {
+      // get facilites from api
+      if (!foundVenues[body.trim() - 1]) {
+        await sendMessage(
+          message.from,
+          "Invalid venue number, Select a valid number from list"
+        );
+      } else {
+        await sendFacilitiesQuestion(message, body, id);
+      }
+    } else if (question === FacilitiesQuestion) {
+      if (!foundFacilities[body.trim() - 1]) {
+        await sendMessage(
+          message.from,
+          "Invalid facility number, Select a valid number from list"
+        );
+      } else {
+        let fac = foundFacilities[body.trim() - 1].id;
+
+        await sendSlotsQuestion(message, fac, id);
+      }
+    } else if (question === SlotsQuestion) {
+      if (body.trim().toLowerCase() === "next") {
+        // search in next date
+        let d = DateTime.fromFormat(date, "dd-MM-yyyy")
+          .plus({ day: 1 })
+          .toFormat("dd-MM-yyyy");
+
+        await savePlayer(id, {
+          date: d,
+        });
+        await sendSlotsQuestion(message, selectedFacility, id);
+      } else if (body.trim().toLowerCase() === "previous") {
+        // go back in date
+        let d = DateTime.fromFormat(date, "dd-MM-yyyy")
+          .minus({ day: 1 })
+          .toFormat("dd-MM-yyyy");
+
+        await savePlayer(id, {
+          date: d,
+        });
+        await sendSlotsQuestion(message, selectedFacility, id);
+      } else {
+        let slotNumbers = body.trim().split(",").sort();
+        let map = new Map();
+        slotNumbers.forEach((item) => {
+          map.set(item, item);
+        });
+
+        slotNumbers = Array.from(map.values());
+
+        // validate
+        let prev = null,
+          hasError = false;
+
+        slotNumbers.map((item) => {
+          if (prev === null) {
+            prev = item;
+          } else {
+            if (item - prev !== 1) {
+              hasError = true;
+            }
+
+            prev = item;
+          }
+        });
+
+        if (hasError) {
+          await sendMessage(
+            message.from,
+            "Invalid slot numbers, Select slot numbers in order, you cannot skip slots from between"
+          );
+        } else {
+          console.log('selected slots', foundSlots)
+          let selectedSlots = record[0].result[0].foundSlots.filter((item) => {
+            return slotNumbers.includes(item.slotNumber.toString());
+          });
+
+          if (selectedSlots.length !== slotNumbers.length) {
+            await sendMessage(
+              message.from,
+              "Invalid slot numbers, please try again"
+            );
+            return false;
+          }
+
+          await savePlayer(id, {
+            slots: selectedSlots,
+          });
+
+          // register slots on server
+          await registerSlot(id);
+
+          // send signal to gray out slots
+          WS.send(
+            JSON.stringify({
+              data: {
+                facilityId: selectedFacility,
+                playerId: playerId,
+                slots: selectedSlots,
+              },
+              type: "blockFacilitySlots",
+            })
+          );
+
+          await sendFriendsQuestion(message, body, id);
+        }
+      }
+    } else if (question === EquipmentQuestion) {
+      if (body.trim().toLowerCase() === "skip") {
+        await savePlayer(id, {
+          question: ConfirmationQuestion,
+          equipments: [],
+        });
+
+
+        // sendMessage(
+        //   message.from,
+        //   `You have selected following items.\nSport: ${sport.name}\\nCity: ${city.name}\\nVenue: ${q.name}\\nDate: ${date}\\nTime: ${!time ? 'Flexible' : time}\n${ConfirmationQuestion}`
+        // );
+        await sendMessage(
+          message.from,
+          ConfirmationQuestion
+        )
+      } else {
+        // validate equipments
+        let equipmentNumbers = body.trim().split(",").sort();
+        let map = new Map();
+        equipmentNumbers.forEach((item) => {
+          map.set(item, item);
+        });
+
+        equipmentNumbers = Array.from(map.values());
+
+        let selectedEquipments = foundGears.filter((item) => {
+          return equipmentNumbers.includes(item.index.toString());
+        });
+
+        if (selectedEquipments.length !== equipmentNumbers.length) {
+          await sendMessage(
+            message.from,
+            "Invalid gear numbers, please try again"
+          );
+          return false;
+        }
+
+        // question = ConfirmationQuestion;
+        await savePlayer(id, {
+          question: ConfirmationQuestion,
+          equipments: selectedEquipments,
+        });
+
+        // send confirmation message
+        await sendMessage(message.from, ConfirmationQuestion);
+        // sendMessage(
+        //   message.from,
+        //   `You have selected following items.\nSport: ${sport.name}\\nCity: ${city.name}\\nVenue: ${q.name}\\nDate: ${date}\\nTime: ${!time ? 'Flexible' : time}\n${ConfirmationQuestion}`
+        // );
+      }
+    } else if (question === FriendsQuestion) {
+      if (body.trim().toLowerCase() !== "skip") {
+        let hasError = false;
+        let removedEmails = [];
+        body.split(",").forEach((item) => {
+          if (!isValidEmail(item.trim())) {
+            hasError = true;
+            removedEmails.push('❌ *' + item + '*');
+          }
+        });
+
+        if (hasError) {
+          await sendMessage(
+            message.from,
+            `One or more emails are invalid and are removed from list.\n${removedEmails.join(
+              ", "
+            )}`
+          );
+        }
+
+        await savePlayer(id, {
+          friends: body
+            .split(",")
+            .filter((item) => isValidEmail(item.trim()))
+            .map((item) => item.trim()),
+        });
+      }
+
+      await sendEquipmentQuestion(message, id);
+    } else if (question === ConfirmationQuestion) {
+      if (body.trim().toLowerCase() === "confirm") {
+        await sendMessage(
+          message.from,
+          "Please wait creating booking for you"
+        );
+
+        const res = await findPlayer(id);
+        const { playerId } = res[0];
+
+        // create player
+        let newCustomer = false;
+        if (!playerId) {
+          customer = await createBookingPlayer(id);
+          newCustomer = true;
+        }
+        // create booking
+        const r = await createBooking(id);
+
+        if (r.error) {
+          await sendMessage(message.from, r.error);
+
+          return false;
+        }
+
+        if (r.data !== null) {
+          await reset(id);
+
+          let reservation = r.data;
+          await sendMessage(
+            message.from,
+            `✔️ Booking created successfully, your booking# is *${reservation.bookingId}*. You will have to pay *SAR ${reservation.price / 100}* at the facility.`
+          );
+
+          await sendMessage(
+            message.from,
+            `Booking details:\n${BOOKING_WEB_URL}/en/whatsapp-booking-details/${reservation.id}\nFind Directions:\nhttps://www.google.com/maps/search/?api=1&query=${reservation?.venueLong?.gisPoint?.latitude},${reservation?.venueLong?.gisPoint?.longitude}`
+          );
+
+
+          if (newCustomer) {
+            await sendMessage(message.from, ConfirmationQuestion3);
+
+            await sendMessage(
+              message.from,
+              `Account details.\nPlease visit *${WEB_URL}* or download *Tazman* app from Google Play or App Store.\nUsername: ${customer.email}\n Password: ${customer.password}`
+            );
+          }
+        }
+      }
+    } else {
+      await sendMessage(
+        message.from,
+        "Sorry, I didn't understand. Please enter a valid option."
+      );
+      // console.log((await chat.getContact()).pushname, message.body);
     }
-
-    console.log("📱 Phone:", phoneNumber);
-    console.log("💬 Message:", messageText);
-
-    res.status(200).send("Webhook processed");
-  } catch (err) {
-    console.error("❌ Error processing webhook:", err);
-    res.sendStatus(500);
   }
 });
 
@@ -1062,14 +1193,15 @@ const isValidEmail = (email) => {
 };
 
 
-const sendDateQuestion = async (client, message, body, id) => {
+const sendDateQuestion = async (message, body, id) => {
+  console.log('send date question', body, id);
   await savePlayer(id, {
     question: DateQuestion,
     q: venues[body.trim() - 1],
   });
 
-  // client.sendMessage(message.from, DateQuestion);
-  await client.sendMessage(
+  // sendMessage(message.from, DateQuestion);
+  await sendMessage(
     message.from,
     `${DateQuestion}\nPlease use *${DateTime.now().toFormat(
       "dd-MM-yyyy"
@@ -1077,27 +1209,27 @@ const sendDateQuestion = async (client, message, body, id) => {
   );
 }
 
-const sendFriendsQuestion = async (client, message, body, id) => {
-  await client.sendMessage(message.from, FriendsQuestion);
+const sendFriendsQuestion = async (message, body, id) => {
+  await sendMessage(message.from, FriendsQuestion);
 
   await savePlayer(id, {
     question: FriendsQuestion,
   });
 };
 
-const sendSportsQuestion = async (client, message, body, id) => {
+const sendSportsQuestion = async (message, body, id) => {
   await savePlayer(id, {
     question: SportQuestion,
     sportsKeywords: sports,
     // q: venues[body],
   });
 
-  await client.sendMessage(
+  await sendMessage(
     message.from,
     "You can always enter *C* to cancel the process."
   );
-  await client.sendMessage(message.from, SportQuestion);
-  await client.sendMessage(
+  await sendMessage(message.from, SportQuestion);
+  await sendMessage(
     message.from,
     sports
       .map((item, index) => {
@@ -1107,11 +1239,11 @@ const sendSportsQuestion = async (client, message, body, id) => {
   );
 };
 
-const sendFacilitiesQuestion = async (client, message, body, id) => {
+const sendFacilitiesQuestion = async (message, body, id) => {
   let record = await findPlayer(id);
 
   // if (record[0].result[0].question) {
-  let { foundVenues } = record[0].result[0];
+  let { foundVenues } = record[0];
 
   let selectedVenue = foundVenues[body.trim()].id;
 
@@ -1129,15 +1261,15 @@ const sendFacilitiesQuestion = async (client, message, body, id) => {
   });
 
   if (foundFacilities.length === 1) {
-    await client.sendMessage(
+    await sendMessage(
       message.from,
       `Found Facility ${foundFacilities[0].name}`
     );
 
-    await sendSlotsQuestion(client, message, foundFacilities[0].id, id);
+    await sendSlotsQuestion(message, foundFacilities[0].id, id);
   } else {
-    await client.sendMessage(message.from, FacilitiesQuestion);
-    await client.sendMessage(
+    await sendMessage(message.from, FacilitiesQuestion);
+    await sendMessage(
       message.from,
       facilities.data
         .map((item, index) => {
@@ -1150,11 +1282,11 @@ const sendFacilitiesQuestion = async (client, message, body, id) => {
   // question = FacilitiesQuestion;
 };
 
-const sendEquipmentQuestion = async (client, message, id) => {
+const sendEquipmentQuestion = async (message, id) => {
   let record = await findPlayer(id);
 
   // if (record[0].result[0].question) {
-  let { sport, city, q, date, time, slots } = record[0].result[0];
+  let { sport, city, q, date, time, slots } = record[0];
 
   const equipments = await searchGears(id);
   if (equipments.data.length > 0) {
@@ -1169,8 +1301,8 @@ const sendEquipmentQuestion = async (client, message, id) => {
       foundGears: eq,
     });
 
-    await client.sendMessage(message.from, EquipmentQuestion);
-    await client.sendMessage(
+    await sendMessage(message.from, EquipmentQuestion);
+    await sendMessage(
       message.from,
       eq
         .map((item, index) => {
@@ -1186,22 +1318,22 @@ const sendEquipmentQuestion = async (client, message, id) => {
     });
 
     // send confirmation message
-    // client.sendMessage(
+    // sendMessage(
     //   message.from,
     //   `You have selected following items.\nSport: ${sport.name}\nCity: ${city.name}\nVenue: ${q.name}\nDate: ${date}\nTime: ${!time ? 'Flexible' : time}\nSlots: ${slots.map(slot => `${slot.startAt}`)}`
     // );
-    await client.sendMessage(
+    await sendMessage(
       message.from,
       ConfirmationQuestion
     );
   }
 };
 
-const sendSlotsQuestion = async (client, message, selectedFacility, id) => {
+const sendSlotsQuestion = async (message, selectedFacility, id) => {
   let record = await findPlayer(id);
 
   // if (record[0].result[0].question) {
-  let { date, time } = record[0].result[0];
+  let { date, time } = record[0];
 
   // question = SlotsQuestion;
   await savePlayer(id, {
@@ -1239,13 +1371,13 @@ const sendSlotsQuestion = async (client, message, selectedFacility, id) => {
   });
 
   if (foundSlots.length === 0) {
-    await client.sendMessage(
+    await sendMessage(
       message.from,
       `Could not find slots in ${date} and ${time}, try again and select different date and time combinations.`
     );
   } else {
-    await client.sendMessage(message.from, SlotsQuestion);
-    await client.sendMessage(
+    await sendMessage(message.from, SlotsQuestion);
+    await sendMessage(
       message.from,
       foundSlots
         .map((item) => {
@@ -1259,13 +1391,13 @@ const sendSlotsQuestion = async (client, message, selectedFacility, id) => {
     );
   }
 
-  await client.sendMessage(
+  await sendMessage(
     message.from,
     "Enter *next* or *previous* to move between dates"
   );
 };
 
-const sendCityQuestion = async (client, message, id) => {
+const sendCityQuestion = async (message, id) => {
   await loadCitiesList(id);
 
   await savePlayer(id, {
@@ -1274,8 +1406,8 @@ const sendCityQuestion = async (client, message, id) => {
     // email: message.body.trim(),
   });
 
-  await client.sendMessage(message.from, CityQuestion);
-  await client.sendMessage(
+  await sendMessage(message.from, CityQuestion);
+  await sendMessage(
     message.from,
     cities
       .map((item, index) => {
@@ -1284,19 +1416,19 @@ const sendCityQuestion = async (client, message, id) => {
       .join("\n")
   );
   if (cities.length === 1) {
-    await client.sendMessage(message.from, `Only 1 city found. ✔️ *${cities[0].name}*`);
+    await sendMessage(message.from, `Only 1 city found. ✔️ *${cities[0].name}*`);
 
-    await sendVenueCityQuestion(client, message, id, 1);
+    await sendVenueCityQuestion(message, id, 1);
   }
 };
 
-const sendVenueCityQuestion = async (client, message, id, city) => {
+const sendVenueCityQuestion = async (message, id, city) => {
   let record = await findPlayer(id);
 
   // if (record[0].result[0].question) {
-  let { cityKeywords } = record[0].result[0];
+  let { cityKeywords } = record[0];
   if (!cityKeywords[city - 1]) {
-    await client.sendMessage(message.from, "Invalid city number, please try again");
+    await sendMessage(message.from, "Invalid city number, please try again");
     return false;
   }
 
@@ -1309,8 +1441,8 @@ const sendVenueCityQuestion = async (client, message, id, city) => {
 
   await loadVenueKeywords(id);
 
-  await client.sendMessage(message.from, VenueQuestion);
-  await client.sendMessage(
+  await sendMessage(message.from, VenueQuestion);
+  await sendMessage(
     message.from,
     venues
       .map((item, index) => {
@@ -1319,22 +1451,23 @@ const sendVenueCityQuestion = async (client, message, id, city) => {
       .join("\n")
   );
   if (venues.length === 1) {
-    await client.sendMessage(
+    await sendMessage(
       message.from,
       `Only 1 venue found. ✔️ *${venues[0].name}*`
     );
     await savePlayer(id, {
       q: venues[0]
     })
-    await sendDateQuestion(client, message, message.body, id);
+    console.log('before send date question', message, message.body, id);
+    await sendDateQuestion(message, message.body, id);
   }
 };
 
-const sendVenuesMessage = async (client, body, message, id) => {
+const sendVenuesMessage = async (body, message, id) => {
   let record = await findPlayer(id);
 
   // if (record[0].result[0].question) {
-  let { date } = record[0].result[0];
+  let { date } = record[0];
 
   if (body.trim().toLowerCase() === "flexible") {
     time = null;
@@ -1344,12 +1477,12 @@ const sendVenuesMessage = async (client, body, message, id) => {
       time: time,
     });
 
-    await _sendVenuesMessage(client, body, message, id);
+    await _sendVenuesMessage(body, message, id);
   } else {
     // parse date to match format
     const parseDate = DateTime.fromFormat(body, "hh:mm a");
     if (!parseDate.isValid) {
-      await client.sendMessage(
+      await sendMessage(
         message.from,
         `Invalid time, please use *${DateTime.now().toFormat(
           "hh:mm a"
@@ -1361,7 +1494,7 @@ const sendVenuesMessage = async (client, body, message, id) => {
         date === DateTime.now().toFormat("dd-MM-yyyy") &&
         parseDate < DateTime.now().toFormat("hh:mm a")
       ) {
-        await client.sendMessage(
+        await sendMessage(
           message.from,
           `Past time not allowed, please use *${DateTime.now().toFormat(
             "hh:mm a"
@@ -1378,21 +1511,21 @@ const sendVenuesMessage = async (client, body, message, id) => {
         question: TimeQuestion,
       });
 
-      await _sendVenuesMessage(client, body, message, id);
+      await _sendVenuesMessage(body, message, id);
     }
   }
 };
 
-const _sendVenuesMessage = async (client, body, message, id) => {
+const _sendVenuesMessage = async (body, message, id) => {
   let record = await findPlayer(id);
 
   // if (record[0].result[0].question) {
-  let { sport, city, q, date, time } = record[0].result[0];
+  let { sport, city, q, date, time } = record[0];
 
-  await client.sendMessage(message.from, AvailabilityQuestion);
+  await sendMessage(message.from, AvailabilityQuestion);
 
   const data = await searchVenues(id);
-
+  console.log('searched venues', data)
   let foundVenues = data.data;
 
   await savePlayer(id, {
@@ -1400,19 +1533,19 @@ const _sendVenuesMessage = async (client, body, message, id) => {
   });
 
   if (foundVenues.length === 0) {
-    await client.sendMessage(
+    await sendMessage(
       message.from,
       "Sorry no venues available at the moment, you can try again with different search terms."
     );
-    // client.sendMessage(
+    // sendMessage(
     //   message.from,
     //   `Sport: ${sport.name}\nCity: ${city.name}\nVenue: ${q.name}\nDate: ${date}\nTime: ${!time ? 'Flexible' : time}`
     // );
-    await client.sendMessage(
+    await sendMessage(
       message.from,
       'Try again with sport selection'
     );
-    await sendSportsQuestion(client, message, body, id);
+    await sendSportsQuestion(message, body, id);
 
     await savePlayer(id, {
       question: SportQuestion,
@@ -1421,19 +1554,19 @@ const _sendVenuesMessage = async (client, body, message, id) => {
   } else {
     if (foundVenues.length === 1) {
       // send facilities message
-      await client.sendMessage(message.from, `Found ${foundVenues[0].name}`);
-      await sendFacilitiesQuestion(client, message, "0", id);
+      await sendMessage(message.from, `Found ${foundVenues[0].name}`);
+      await sendFacilitiesQuestion(message, "0", id);
     } else {
       // question = VenuesQuestion;
       await savePlayer(id, {
         question: VenuesQuestion,
       });
 
-      await client.sendMessage(
+      await sendMessage(
         message.from,
         `Found ${foundVenues.length} venues, Select a venue number from list`
       );
-      await client.sendMessage(
+      await sendMessage(
         message.from,
         foundVenues
           .map((item, index) => {

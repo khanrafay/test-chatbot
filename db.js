@@ -1,10 +1,10 @@
-import Surreal from "surrealdb.js";
+import Surreal from "surrealdb";
 import { DateTime } from "luxon";
-import * as Sentry from "@sentry/node";
+//import * as Sentry from "@sentry/node";
 
-Sentry.init({
-  dsn: "https://267df2d31a78ac028d196fc7a5ebcdcb@o522135.ingest.sentry.io/4506416306978816",
-});
+// Sentry.init({
+//   dsn: "https://267df2d31a78ac028d196fc7a5ebcdcb@o522135.ingest.sentry.io/4506416306978816",
+// });
 
 let db = null;
 
@@ -46,7 +46,7 @@ export async function findPlayer(id) {
     return await db.select(`player:⟨${id}⟩`);
   } catch (e) {
     console.log("cannot find player", e?.message || e);
-    Sentry.captureException(e);
+    //    Sentry.captureException(e);
   }
 }
 
@@ -59,7 +59,7 @@ export async function createPlayer(id, values) {
     });
   } catch (e) {
     console.log("cannot create player", e?.message || e);
-    Sentry.captureException(e);
+    // Sentry.captureException(e);
   }
 }
 
@@ -75,7 +75,7 @@ export async function savePlayer(id, values) {
     return res;
   } catch (e) {
     console.log("cannot save player", e?.message || e);
-    Sentry.captureException(e);
+    //  Sentry.captureException(e);
   }
 }
 
@@ -85,6 +85,6 @@ export async function deletePlayer(id) {
     return await db.delete(`player:⟨${id}⟩`);
   } catch (e) {
     console.log("cannot delete player", e?.message || e);
-    Sentry.captureException(e);
+    //  Sentry.captureException(e);
   }
 }

@@ -1,4 +1,5 @@
 import axios from "axios";
+import { DateTime } from "luxon";
 
 const FromNumber = "715263275011455";
 
@@ -79,6 +80,8 @@ export const sendMessage = async (to, body) => {
 };
 
 
+
+
 export const sendInteractiveButtons = async (to, text, options) => {
   try {
     const buttons = options.map(opt => ({
@@ -110,4 +113,67 @@ export const sendInteractiveButtons = async (to, text, options) => {
   } catch (err) {
     console.error("❌ Error sending buttons:", err.response?.data || err.message);
   }
+}
+
+
+export async function sendMainMenu(number, sendInteractiveButtons) {
+  const message = "Hi Abdul Rafay Khan, Welcome to Tazman.\nHow can we help you today?";
+  const buttons = [
+    { id: "book_venue", title: "📍 Book a Venue" },
+    { id: "cancel", title: "❌ Cancel" },
+  ];
+
+  return await sendInteractiveButtons(number, message, buttons);
+}
+
+// ✅ Generic Interactive List Sender
+export async function sendInteractiveList(number, headerText, bodyText, items, sectionTitle = "Options", type = "list") {
+  console.log('venues check', items)
+
+  const response = await axios.post(
+    `https://graph.facebook.com/v22.0/${FromNumber}/messages`,
+    {
+      messaging_product: "whatsapp",
+      to: number,
+      type: "interactive",
+      interactive: {
+        type: "list",
+        header: {
+          type: "text",
+          text: headerText,
+        },
+        body: {
+          text: bodyText,
+        },
+        footer: {
+          text: "Choose one option",
+        },
+        action: {
+          button: "Select",
+          sections: type === "list" ? [
+            {
+              rows: items.map((item, index) => ({
+                id: `${index + 1}`,
+                title: item.name,
+              })),
+            },
+          ] : [{
+            rows: items.map((item, index) => ({
+              id: `slot_${item.slotNumber}`, // short & unique
+              title: `${DateTime.fromISO(item.calendarEntry.startAt).toFormat("dd-MM hh:mm")}`, // <= 24 chars
+              description: `Till ${DateTime.fromISO(item.calendarEntry.endAt).toFormat("hh:mm a")} • SAR ${item.price / 100}`
+            }))
+          }],
+        },
+      },
+
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+    }
+  );
+
 }

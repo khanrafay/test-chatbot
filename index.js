@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 import axios from "axios";
 import { DateTime } from "luxon";
 import { connect, createPlayer, findPlayer, savePlayer, } from "./db.js";
-import { sendHiMessage, sendMessage, sendInteractiveButtons } from "./messages/hi.js";
+import { sendHiMessage, sendMessage, sendInteractiveButtons, sendMainMenu, sendInteractiveList } from "./messages/hi.js";
 import WS from "./websocket.js";
 import express from 'express';
 
@@ -46,19 +46,20 @@ let date = "";
 let time = null;
 let websocketMessage = null;
 
-// // ✅ Webhook verification endpoint
-// app.get("/webhook", (req, res) => {
-//   const mode = req.query["hub.mode"];
-//   const token = req.query["hub.verify_token"];
-//   const challenge = req.query["hub.challenge"];
+//✅ Webhook verification endpoint
+app.get("/webhook", (req, res) => {
+  console.log('heloooooooooooooo')
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
 
-//   if (mode === "subscribe" && token === VERIFY_TOKEN) {
-//     console.log("✅ Webhook verified!");
-//     res.status(200).send(challenge); // MUST return challenge
-//   } else {
-//     res.sendStatus(403);
-//   }
-// });
+  if (mode === "subscribe" && token === VERIFY_TOKEN) {
+    console.log("✅ Webhook verified!");
+    res.status(200).send(challenge); // MUST return challenge
+  } else {
+    res.sendStatus(403);
+  }
+});
 
 // const sendTemplateMessage = async () => {
 //   try {
@@ -90,6 +91,37 @@ let websocketMessage = null;
 // };
 
 // sendTemplateMessage();
+
+
+// const sendTextMessage = async () => {
+//       try {
+//     const response = await fetch(
+//       'https://graph.facebook.com/v22.0/715263275011455/messages',
+//       {
+//         method: 'POST',
+//         headers: {
+//           'Authorization': `Bearer ${process.env.WHATSAPP_TOKEN}`,
+//           'Content-Type': 'application/json'
+//         },
+//         body: JSON.stringify({
+//           messaging_product: 'whatsapp',
+//           to: '923323604897',
+//           type: 'text',
+//           text: {
+//             body: 'This is a text message'
+//           }
+//         })
+//       }
+//     );
+
+//     const data = await response.json();
+//     console.log(data);
+//   } catch (err) {
+//     console.error("Error sending message:", err);
+//   }
+// }
+
+// sendTextMessage();
 
 
 
@@ -506,7 +538,7 @@ const clearSlots = async (id) => {
 
   let { facilityId, playerId, slots } = record[0];
 
-  if (slots.length === 0) {
+  if (slots && slots.length === 0) {
     return false;
   }
 
@@ -532,7 +564,7 @@ const clearSlots = async (id) => {
     );
   } catch (e) {
     console.log("could not un register slots", e);
-    Sentry.captureException(e)
+    // Sentry.captureException(e)
   }
 };
 
@@ -793,13 +825,7 @@ app.post("/webhook", async (req, res) => {
     //   info.name
     // );
 
-    await sendInteractiveButtons(info.number,
-      "Hi Abdul Rafay Khan, Welcome to Tazman.\nHow can we help you today?",
-      [
-        { id: "book_venue", title: "📍 Book a Venue" },
-        { id: "cancel", title: "❌ Cancel" },
-      ]
-    );
+    await sendMainMenu(info.number, sendInteractiveButtons);
 
     return;
   } else if (body.toUpperCase() === "V" || body === "book_venue") {
@@ -813,13 +839,15 @@ app.post("/webhook", async (req, res) => {
     } else {
       await sendSportsQuestion(message, body, id);
     }
-  } else if (body.toUpperCase() === "C") {
+  } else if (body.toUpperCase() === "C" || body === "cancel") {
     await reset(id);
 
     await sendMessage(
       message.from,
-      "Sorry to see that.\nHow can we help you then?\nPlease reply with *V* if you want to book a venue."
+      "Sorry to see that.\nHow can we help you then?"
     );
+
+    await sendMainMenu(message.from, sendInteractiveButtons);
   } else {
 
     if (question === EmailQuestion) { //|| question === record[0].result[0].question
@@ -861,6 +889,7 @@ app.post("/webhook", async (req, res) => {
 
       await sendSportsQuestion(message, body, id);
     } else if (question === VenueQuestion) {
+
       // find in cities/venues
       if (!venues[body.trim() - 1]) {
         await sendMessage(
@@ -1194,13 +1223,12 @@ const isValidEmail = (email) => {
 
 
 const sendDateQuestion = async (message, body, id) => {
-  console.log('send date question', body, id);
   await savePlayer(id, {
     question: DateQuestion,
     q: venues[body.trim() - 1],
   });
 
-  // sendMessage(message.from, DateQuestion);
+  //sendMessage(message.from, DateQuestion);
   await sendMessage(
     message.from,
     `${DateQuestion}\nPlease use *${DateTime.now().toFormat(
@@ -1226,17 +1254,18 @@ const sendSportsQuestion = async (message, body, id) => {
 
   await sendMessage(
     message.from,
-    "You can always enter *C* to cancel the process."
+    "You can always type *C* or press *Cancel* (from the menu) to cancel the process."
   );
   await sendMessage(message.from, SportQuestion);
-  await sendMessage(
+
+  await sendInteractiveList(
     message.from,
-    sports
-      .map((item, index) => {
-        return `${index + 1}. ${item.name}`;
-      })
-      .join("\n")
+    "Choose a Sport",
+    "Pick one sport from the list below:",
+    sports,
+    "Available Sports"
   );
+
 };
 
 const sendFacilitiesQuestion = async (message, body, id) => {
@@ -1377,18 +1406,26 @@ const sendSlotsQuestion = async (message, selectedFacility, id) => {
     );
   } else {
     await sendMessage(message.from, SlotsQuestion);
-    await sendMessage(
+    await sendInteractiveList(
       message.from,
-      foundSlots
-        .map((item) => {
-          return `${item.slotNumber}. ${DateTime.fromISO(
-            item.calendarEntry.startAt
-          ).toFormat("dd-MM-yyyy hh:mm a")} till ${DateTime.fromISO(
-            item.calendarEntry.endAt
-          ).toFormat("dd-MM-yyyy hh:mm a")} for *SAR ${item.price / 100}*`;
-        })
-        .join("\n")
+      "Select Time Slot",
+      "Pick one slot from the list below:",
+      foundSlots,
+      "Available Slots",
+      "slots"
     );
+    // await sendMessage(
+    //   message.from,
+    //   foundSlots
+    //     .map((item) => {
+    //       return `${item.slotNumber}. ${DateTime.fromISO(
+    //         item.calendarEntry.startAt
+    //       ).toFormat("dd-MM-yyyy hh:mm a")} till ${DateTime.fromISO(
+    //         item.calendarEntry.endAt
+    //       ).toFormat("dd-MM-yyyy hh:mm a")} for *SAR ${item.price / 100}*`;
+    //     })
+    //     .join("\n")
+    // );
   }
 
   await sendMessage(
@@ -1407,14 +1444,21 @@ const sendCityQuestion = async (message, id) => {
   });
 
   await sendMessage(message.from, CityQuestion);
-  await sendMessage(
+  await sendInteractiveList(
     message.from,
-    cities
-      .map((item, index) => {
-        return `${index + 1}. ${item.name}`;
-      })
-      .join("\n")
+    "Select City",
+    "Pick one city from the list below:",
+    cities,
+    "Available Cities"
   );
+  // await sendMessage(
+  //   message.from,
+  //   cities
+  //     .map((item, index) => {
+  //       return `${index + 1}. ${item.name}`;
+  //     })
+  //     .join("\n")
+  // );
   if (cities.length === 1) {
     await sendMessage(message.from, `Only 1 city found. ✔️ *${cities[0].name}*`);
 
@@ -1442,14 +1486,6 @@ const sendVenueCityQuestion = async (message, id, city) => {
   await loadVenueKeywords(id);
 
   await sendMessage(message.from, VenueQuestion);
-  await sendMessage(
-    message.from,
-    venues
-      .map((item, index) => {
-        return `${index + 1}. ${item.name}`;
-      })
-      .join("\n")
-  );
   if (venues.length === 1) {
     await sendMessage(
       message.from,
@@ -1458,9 +1494,26 @@ const sendVenueCityQuestion = async (message, id, city) => {
     await savePlayer(id, {
       q: venues[0]
     })
-    console.log('before send date question', message, message.body, id);
-    await sendDateQuestion(message, message.body, id);
+    console.log('before send date question', message, venues[0].name, id);
+    await sendDateQuestion(message, venues[0].name, id);
+  } else {
+    await sendInteractiveList(
+      message.from,
+      "Select Venue",
+      "Pick one venue from the list below:",
+      venues,
+      "Available Venues"
+    );
   }
+  // await sendMessage(
+  //   message.from,
+  //   venues
+  //     .map((item, index) => {
+  //       return `${index + 1}. ${item.name}`;
+  //     })
+  //     .join("\n")
+  // );
+
 };
 
 const sendVenuesMessage = async (body, message, id) => {

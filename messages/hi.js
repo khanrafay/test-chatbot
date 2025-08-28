@@ -210,6 +210,22 @@ export async function askForDate(number) {
   );
 }
 
+export async function askForTime(number) {
+
+  return await sendInteractiveList(
+    number,
+    "Select Time",
+    "Please choose flexible to avoid time constraint or enter time manually.",
+    [
+      { name: "Flexible" },
+      { name: "Enter Time" },
+    ],
+    'Available Time',
+    'list',
+    'value'
+  );
+}
+
 export function generateTimesList(startHour = 0, endHour = 23) {
   const times = [];
   let dt = DateTime.fromObject({ hour: startHour, minute: 0 });

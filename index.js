@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 import axios from "axios";
 import { DateTime } from "luxon";
 import { connect, createPlayer, findPlayer, savePlayer, } from "./db.js";
-import { sendHiMessage, sendMessage, sendInteractiveButtons, sendMainMenu, sendInteractiveList, askForDate } from "./messages/hi.js";
+import { sendHiMessage, sendMessage, sendInteractiveButtons, sendMainMenu, sendInteractiveList, askForDate, askForTime } from "./messages/hi.js";
 import WS from "./websocket.js";
 import express from 'express';
 
@@ -977,7 +977,8 @@ app.post("/webhook", async (req, res) => {
             date: parseDate.toFormat("dd-MM-yyyy"),
           });
 
-          await sendVenuesMessage(body, message, id);
+          askForTime(message.from);
+
           //await sendMessage(message.from, TimeQuestion);
           // await sendMessage(
           //   message.from,
@@ -990,6 +991,7 @@ app.post("/webhook", async (req, res) => {
         }
       }
     } else if (question === TimeQuestion) {
+      console.log('time selected')
       await sendVenuesMessage(body, message, id);
     } else if (question === VenuesQuestion) {
       // get facilites from api
@@ -1144,6 +1146,10 @@ app.post("/webhook", async (req, res) => {
 
         // send confirmation message
         await sendMessage(message.from, ConfirmationQuestion);
+        await sendInteractiveButtons(message.from, "Confirm the booking or cancel the process",
+          { id: "confirm", title: "Confirm" },
+          { id: "cancel", title: "Cancel" },
+        )
         // sendMessage(
         //   message.from,
         //   `You have selected following items.\nSport: ${sport.name}\\nCity: ${city.name}\\nVenue: ${q.name}\\nDate: ${date}\\nTime: ${!time ? 'Flexible' : time}\n${ConfirmationQuestion}`
@@ -1429,26 +1435,26 @@ const sendSlotsQuestion = async (message, selectedFacility, id) => {
     );
   } else {
     await sendMessage(message.from, SlotsQuestion);
-    await sendInteractiveList(
-      message.from,
-      "Select Time Slot",
-      "Pick one slot from the list below:",
-      foundSlots,
-      "Available Slots",
-      "slots"
-    );
-    // await sendMessage(
+    // await sendInteractiveList(
     //   message.from,
-    //   foundSlots
-    //     .map((item) => {
-    //       return `${item.slotNumber}. ${DateTime.fromISO(
-    //         item.calendarEntry.startAt
-    //       ).toFormat("dd-MM-yyyy hh:mm a")} till ${DateTime.fromISO(
-    //         item.calendarEntry.endAt
-    //       ).toFormat("dd-MM-yyyy hh:mm a")} for *SAR ${item.price / 100}*`;
-    //     })
-    //     .join("\n")
+    //   "Select Time Slot",
+    //   "Pick one slot from the list below:",
+    //   foundSlots,
+    //   "Available Slots",
+    //   "slots"
     // );
+    await sendMessage(
+      message.from,
+      foundSlots
+        .map((item) => {
+          return `${item.slotNumber}. ${DateTime.fromISO(
+            item.calendarEntry.startAt
+          ).toFormat("dd-MM-yyyy hh:mm a")} till ${DateTime.fromISO(
+            item.calendarEntry.endAt
+          ).toFormat("dd-MM-yyyy hh:mm a")} for *SAR ${item.price / 100}*`;
+        })
+        .join("\n")
+    );
   }
 
   await sendMessage(
@@ -1553,6 +1559,13 @@ const sendVenuesMessage = async (body, message, id) => {
     });
 
     await _sendVenuesMessage(body, message, id);
+  } else if (body.trim().toLowerCase() === "enter time") {
+    await sendMessage(
+      message.from,
+      `Please use *${DateTime.now().toFormat(
+        "hh:mm a"
+      )}* format`
+    );
   } else {
     // parse date to match format
     const parseDate = DateTime.fromFormat(body, "hh:mm a");

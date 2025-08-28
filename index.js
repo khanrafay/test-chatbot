@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 import axios from "axios";
 import { DateTime } from "luxon";
 import { connect, createPlayer, findPlayer, savePlayer, } from "./db.js";
-import { sendHiMessage, sendMessage, sendInteractiveButtons, sendMainMenu, sendInteractiveList } from "./messages/hi.js";
+import { sendHiMessage, sendMessage, sendInteractiveButtons, sendMainMenu, sendInteractiveList, askForDate } from "./messages/hi.js";
 import WS from "./websocket.js";
 import express from 'express';
 
@@ -46,20 +46,20 @@ let date = "";
 let time = null;
 let websocketMessage = null;
 
-//✅ Webhook verification endpoint
-app.get("/webhook", (req, res) => {
-  console.log('heloooooooooooooo')
-  const mode = req.query["hub.mode"];
-  const token = req.query["hub.verify_token"];
-  const challenge = req.query["hub.challenge"];
+// //✅ Webhook verification endpoint
+// app.get("/webhook", (req, res) => {
+//   console.log('heloooooooooooooo')
+//   const mode = req.query["hub.mode"];
+//   const token = req.query["hub.verify_token"];
+//   const challenge = req.query["hub.challenge"];
 
-  if (mode === "subscribe" && token === VERIFY_TOKEN) {
-    console.log("✅ Webhook verified!");
-    res.status(200).send(challenge); // MUST return challenge
-  } else {
-    res.sendStatus(403);
-  }
-});
+//   if (mode === "subscribe" && token === VERIFY_TOKEN) {
+//     console.log("✅ Webhook verified!");
+//     res.status(200).send(challenge); // MUST return challenge
+//   } else {
+//     res.sendStatus(403);
+//   }
+// });
 
 // const sendTemplateMessage = async () => {
 //   try {
@@ -252,7 +252,6 @@ export const loadData = async () => {
         name: item.name.toLowerCase(),
       };
     });
-    console.log("sports loaded", sports);
   } catch (e) {
     console.error("unable to load data", e);
     // Sentry.captureException(e)
@@ -262,7 +261,6 @@ export const loadData = async () => {
 const loadCitiesList = async (id) => {
   const record = await findPlayer(id);
   const { sport } = record[0];
-  console.log('spo', sport)
   try {
     const c = await request(
       `/api/tazman/search/venue/cities-keyword?sport=${sport.id}`
@@ -276,7 +274,7 @@ const loadCitiesList = async (id) => {
   } catch (e) {
     console.log("cannot load city keywords");
     console.log(e);
-    Sentry.captureException(e)
+    // Sentry.captureException(e)
   }
 };
 
@@ -296,7 +294,7 @@ const loadVenueKeywords = async (id) => {
   } catch (e) {
     console.log("cannot load venue keywords");
     console.log(e);
-    Sentry.captureException(e)
+    //  Sentry.captureException(e)
   }
 };
 
@@ -366,7 +364,6 @@ const searchVenues = async (id) => {
     const data = await request(`/api/tazman/venue/search`, {
       params: searchQuery,
     });
-    console.log('data for venues', data)
     return {
       data: data.data.venueList.map((venue) => ({
         id: venue.id,
@@ -376,7 +373,7 @@ const searchVenues = async (id) => {
     };
   } catch (e) {
     console.log("cant get venues data", e);
-    Sentry.captureException(e)
+    //Sentry.captureException(e)
     return {
       data: [],
     };
@@ -416,7 +413,7 @@ const searchFacilities = async (id) => {
     };
   } catch (e) {
     console.log("unable to find facilities", e);
-    Sentry.captureException(e)
+    //Sentry.captureException(e)
 
     return {
       data: [],
@@ -437,7 +434,7 @@ const searchGears = async (id) => {
     };
   } catch (e) {
     console.log("unable to load equipments", e);
-    Sentry.captureException(e)
+    //Sentry.captureException(e)
     return {
       data: [],
     };
@@ -500,7 +497,7 @@ const searchTimeSlots = async (id) => {
     };
   } catch (e) {
     console.log("unable to find slots", e);
-    Sentry.captureException(e)
+    //  Sentry.captureException(e)
 
     return {
       data: [],
@@ -529,7 +526,7 @@ const registerSlot = async (id) => {
     });
   } catch (e) {
     console.log("could not register slots", e);
-    Sentry.captureException(e)
+    //  Sentry.captureException(e)
   }
 };
 
@@ -598,7 +595,7 @@ const createBookingPlayer = async (id) => {
     };
   } catch (e) {
     console.log("cannot create player", e.response.data);
-    Sentry.captureException(e)
+    //Sentry.captureException(e)
 
     return null;
   }
@@ -679,7 +676,7 @@ const createBooking = async (id) => {
   } catch (e) {
     console.log("could not create booking");
     console.log(e);
-    Sentry.captureException(e)
+    // Sentry.captureException(e)
 
     return {
       data: null,
@@ -692,6 +689,30 @@ let dataLoaded = false; // global flag
 
 app.post("/webhook", async (req, res) => {
   res.sendStatus(200);
+
+  const entry = req.body.entry?.[0];
+  const changes = entry?.changes?.[0];
+  const value = changes?.value;
+  const message = value?.messages?.[0];
+  const contact = value?.contacts?.[0];
+
+  // 🚨 Exit early if no message
+  if (!message) {
+    console.log("⚠️ No user message, ignoring webhook");
+    return;
+  }
+
+  // 🚨 Ignore system / status messages
+  if (message.type !== "text" && message.type !== "interactive") {
+    console.log("⚠️ Non-user message type:", message.type);
+    return;
+  }
+
+  // 🚨 Ignore echoes (your own messages sent back)
+  if (message.from === value.metadata.phone_number_id) {
+    console.log("⚠️ Echo message from self, ignoring");
+    return;
+  }
 
   if (!dataLoaded) {
     console.log("⏳ Loading data first time...");
@@ -717,11 +738,7 @@ app.post("/webhook", async (req, res) => {
   let question = "";
   let customer = null;
 
-  const entry = req.body.entry?.[0];
-  const changes = entry?.changes?.[0];
-  const value = changes?.value;
-  const message = value?.messages?.[0];
-  const contact = value?.contacts?.[0];
+
 
   let body = message?.text?.body?.trim().toLowerCase() || "";
   customer = contact?.profile?.name || "Unknown";
@@ -751,7 +768,6 @@ app.post("/webhook", async (req, res) => {
   let record = [{ result: [] }];
   try {
     const fetched = await findPlayer(id);
-    console.log('fetched player', fetched)
     record = [{
       result: fetched // wrap fetched data into .result
     }];
@@ -759,7 +775,6 @@ app.post("/webhook", async (req, res) => {
     console.error("Failed to fetch player:", error.message);
   }
 
-  console.log('result', record[0]);
   var foundVenues = [],
     foundFacilities = [],
     foundSlots = [],
@@ -809,7 +824,6 @@ app.post("/webhook", async (req, res) => {
   }
 
   if (info.name === undefined) {
-    // console.log("undefined detected, full info is", info);
   }
   if (hi.includes(body)) {
     customer = (await loadCustomerInfo(info.number)).data;
@@ -919,6 +933,7 @@ app.post("/webhook", async (req, res) => {
       await sendVenueCityQuestion(message, id, body.trim());
     } else if (question === DateQuestion) {
       // parse date to match format
+      console.log('date body', body, body.trim().toLowerCase())
       if (body.trim().toLowerCase() === "flexible") {
         await sendVenuesMessage(body, message, id);
 
@@ -930,6 +945,13 @@ app.post("/webhook", async (req, res) => {
           // question: TimeQuestion,
           date: today,
         });
+      } else if (body.trim().toLowerCase() === "enter date") {
+        await sendMessage(
+          message.from,
+          `${DateQuestion}\nPlease use *${DateTime.now().toFormat(
+            "dd-MM-yyyy"
+          )}* format`
+        );
       } else {
         const parseDate = DateTime.fromFormat(body, "dd-MM-yyyy");
         if (!parseDate.isValid) {
@@ -955,13 +977,14 @@ app.post("/webhook", async (req, res) => {
             date: parseDate.toFormat("dd-MM-yyyy"),
           });
 
-          await sendMessage(message.from, TimeQuestion);
-          await sendMessage(
-            message.from,
-            `Please use *${DateTime.now().toFormat(
-              "hh:mm a"
-            )}* format, or type *flexible* to skip time constraint`
-          );
+          await sendVenuesMessage(body, message, id);
+          //await sendMessage(message.from, TimeQuestion);
+          // await sendMessage(
+          //   message.from,
+          //   `Please use *${DateTime.now().toFormat(
+          //     "hh:mm a"
+          //   )}* format, or type *flexible* to skip time constraint`
+          // );
 
           // date = body;
         }
@@ -1041,7 +1064,6 @@ app.post("/webhook", async (req, res) => {
             "Invalid slot numbers, Select slot numbers in order, you cannot skip slots from between"
           );
         } else {
-          console.log('selected slots', foundSlots)
           let selectedSlots = record[0].result[0].foundSlots.filter((item) => {
             return slotNumbers.includes(item.slotNumber.toString());
           });
@@ -1229,12 +1251,13 @@ const sendDateQuestion = async (message, body, id) => {
   });
 
   //sendMessage(message.from, DateQuestion);
-  await sendMessage(
-    message.from,
-    `${DateQuestion}\nPlease use *${DateTime.now().toFormat(
-      "dd-MM-yyyy"
-    )}* format, or type *flexible* to skip date constraint`
-  );
+  // await sendMessage(
+  //   message.from,
+  //   `${DateQuestion}\nPlease use *${DateTime.now().toFormat(
+  //     "dd-MM-yyyy"
+  //   )}* format, or type *flexible* to skip date constraint`
+  // );
+  askForDate(message.from)
 }
 
 const sendFriendsQuestion = async (message, body, id) => {
@@ -1494,7 +1517,6 @@ const sendVenueCityQuestion = async (message, id, city) => {
     await savePlayer(id, {
       q: venues[0]
     })
-    console.log('before send date question', message, venues[0].name, id);
     await sendDateQuestion(message, venues[0].name, id);
   } else {
     await sendInteractiveList(
@@ -1578,7 +1600,6 @@ const _sendVenuesMessage = async (body, message, id) => {
   await sendMessage(message.from, AvailabilityQuestion);
 
   const data = await searchVenues(id);
-  console.log('searched venues', data)
   let foundVenues = data.data;
 
   await savePlayer(id, {

@@ -127,8 +127,25 @@ export async function sendMainMenu(number, sendInteractiveButtons) {
 }
 
 // ✅ Generic Interactive List Sender
-export async function sendInteractiveList(number, headerText, bodyText, items, sectionTitle = "Options", type = "list") {
+export async function sendInteractiveList(number, headerText, bodyText, items, sectionTitle = "Options", type = "list", idType = "index") {
   console.log('venues check', items)
+
+  let sec = [];
+  if (type === "slots") {
+    const chunkArray = (arr, size) =>
+      arr.reduce((acc, _, i) => (i % size ? acc : [...acc, arr.slice(i, i + size)]), []);
+
+    const chunkedItems = chunkArray(items, 10);
+
+    sec = chunkedItems.map((chunk, idx) => ({
+      title: `${sectionTitle} ${idx + 1}`, // e.g. Available Slots 1, Available Slots 2
+      rows: chunk.map((item) => ({
+        id: `slot_${item.slotNumber}`, // must be unique
+        title: DateTime.fromISO(item.calendarEntry.startAt).toFormat("hh:mm a"), // must be <= 24 chars
+        description: `Till ${DateTime.fromISO(item.calendarEntry.endAt).toFormat("hh:mm a")} • SAR ${item.price / 100}`
+      }))
+    }));
+  }
 
   const response = await axios.post(
     `https://graph.facebook.com/v22.0/${FromNumber}/messages`,
@@ -153,17 +170,11 @@ export async function sendInteractiveList(number, headerText, bodyText, items, s
           sections: type === "list" ? [
             {
               rows: items.map((item, index) => ({
-                id: `${index + 1}`,
+                id: idType === "index" ? `${index + 1}` : item.name,
                 title: item.name,
               })),
             },
-          ] : [{
-            rows: items.map((item, index) => ({
-              id: `slot_${item.slotNumber}`, // short & unique
-              title: `${DateTime.fromISO(item.calendarEntry.startAt).toFormat("dd-MM hh:mm")}`, // <= 24 chars
-              description: `Till ${DateTime.fromISO(item.calendarEntry.endAt).toFormat("hh:mm a")} • SAR ${item.price / 100}`
-            }))
-          }],
+          ] : sec,
         },
       },
 
@@ -176,4 +187,37 @@ export async function sendInteractiveList(number, headerText, bodyText, items, s
     }
   );
 
+}
+
+
+export async function askForDate(number) {
+  const today = DateTime.now().toFormat("dd-MM-yyyy");
+  const tomorrow = DateTime.now().plus({ days: 1 }).toFormat("dd-MM-yyyy");
+
+  return await sendInteractiveList(
+    number,
+    "Select a Date",
+    "Please choose one of the options or type a custom date.",
+    [
+      { name: today },
+      { name: tomorrow },
+      { name: "Flexible" },
+      { name: "Enter Date" },
+    ],
+    'Available Dates',
+    'list',
+    'value'
+  );
+}
+
+export function generateTimesList(startHour = 0, endHour = 23) {
+  const times = [];
+  let dt = DateTime.fromObject({ hour: startHour, minute: 0 });
+  const end = DateTime.fromObject({ hour: endHour, minute: 59 });
+
+  while (dt <= end) {
+    times.push(dt.toFormat("hh:mm a"));
+    dt = dt.plus({ minutes: 30 });
+  }
+  return times;
 }

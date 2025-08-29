@@ -128,24 +128,8 @@ export async function sendMainMenu(number, sendInteractiveButtons) {
 
 // ✅ Generic Interactive List Sender
 export async function sendInteractiveList(number, headerText, bodyText, items, sectionTitle = "Options", type = "list", idType = "index") {
-  console.log('venues check', items)
 
-  let sec = [];
-  if (type === "slots") {
-    const chunkArray = (arr, size) =>
-      arr.reduce((acc, _, i) => (i % size ? acc : [...acc, arr.slice(i, i + size)]), []);
 
-    const chunkedItems = chunkArray(items, 10);
-
-    sec = chunkedItems.map((chunk, idx) => ({
-      title: `${sectionTitle} ${idx + 1}`, // e.g. Available Slots 1, Available Slots 2
-      rows: chunk.map((item) => ({
-        id: `slot_${item.slotNumber}`, // must be unique
-        title: DateTime.fromISO(item.calendarEntry.startAt).toFormat("hh:mm a"), // must be <= 24 chars
-        description: `Till ${DateTime.fromISO(item.calendarEntry.endAt).toFormat("hh:mm a")} • SAR ${item.price / 100}`
-      }))
-    }));
-  }
 
   const response = await axios.post(
     `https://graph.facebook.com/v22.0/${FromNumber}/messages`,
@@ -162,19 +146,32 @@ export async function sendInteractiveList(number, headerText, bodyText, items, s
         body: {
           text: bodyText,
         },
-        footer: {
-          text: "Choose one option",
-        },
         action: {
           button: "Select",
-          sections: type === "list" ? [
+          sections: [
             {
-              rows: items.map((item, index) => ({
-                id: idType === "index" ? `${index + 1}` : item.name,
-                title: item.name,
-              })),
+              title: "Popular Sports",
+              rows: [
+                { id: "sport_1", title: "Football" },
+                { id: "sport_2", title: "Cricket" },
+                { id: "sport_3", title: "Tennis" },
+                { id: "sport_4", title: "Basketball" },
+                { id: "sport_5", title: "Hockey" },
+                { id: "sport_6", title: "Badminton" },
+                { id: "sport_7", title: "Table Tennis" },
+                { id: "sport_8", title: "Volleyball" },
+                { id: "sport_9", title: "Rugby" },
+                { id: "sport_10", title: "Baseball" },
+              ],
             },
-          ] : sec,
+            {
+              title: "More Sports",
+              rows: [
+                { id: "sport_11", title: "Squash" },
+
+              ],
+            },
+          ],
         },
       },
 

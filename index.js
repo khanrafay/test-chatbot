@@ -1147,8 +1147,10 @@ app.post("/webhook", async (req, res) => {
         // send confirmation message
         await sendMessage(message.from, ConfirmationQuestion);
         await sendInteractiveButtons(message.from, "Confirm the booking or cancel the process",
-          { id: "confirm", title: "Confirm" },
-          { id: "cancel", title: "Cancel" },
+          [
+            { id: "confirm", title: "Confirm" },
+            { id: "cancel", title: "Cancel" },
+          ]
         )
         // sendMessage(
         //   message.from,
@@ -1285,13 +1287,59 @@ const sendSportsQuestion = async (message, body, id) => {
     message.from,
     "You can always type *C* or press *Cancel* (from the menu) to cancel the process."
   );
-  await sendMessage(message.from, SportQuestion);
 
+  const sportsList = [
+    { id: "sport_1", name: "Football" },
+    { id: "sport_2", name: "Cricket" },
+    { id: "sport_3", name: "Tennis" },
+    { id: "sport_4", name: "Basketball" },
+    { id: "sport_5", name: "Hockey" },
+    { id: "sport_6", name: "Badminton" },
+    { id: "sport_7", name: "Table Tennis" },
+    { id: "sport_8", name: "Volleyball" },
+    { id: "sport_9", name: "Rugby" },
+    { id: "sport_10", name: "Baseball" },
+    { id: "sport_11", name: "Squash" },
+    { id: "sport_12", name: "Swimming" },
+    { id: "sport_13", name: "Golf" },
+    { id: "sport_14", name: "Boxing" },
+    { id: "sport_15", name: "Athletics" }
+  ];
+
+  const sportsSections = [
+    {
+      title: "Popular Sports",
+      rows: [
+        { id: "sport_1", title: "Football" },
+        { id: "sport_2", title: "Cricket" },
+        { id: "sport_3", title: "Tennis" },
+        { id: "sport_4", title: "Basketball" },
+        { id: "sport_5", title: "Hockey" },
+        { id: "sport_6", title: "Badminton" },
+        { id: "sport_7", title: "Table Tennis" },
+        { id: "sport_8", title: "Volleyball" },
+        { id: "sport_9", title: "Rugby" },
+        { id: "sport_10", title: "Baseball" },
+      ],
+    },
+    {
+      title: "More Sports",
+      rows: [
+        { id: "sport_11", title: "Squash" },
+        { id: "sport_12", title: "Swimming" },
+        { id: "sport_13", title: "Golf" },
+        { id: "sport_14", title: "Boxing" },
+        { id: "sport_15", title: "Athletics" },
+      ],
+    },
+  ];
+  // await sendMessage(message.from, SportQuestion);
+  console.log('sports', sports)
   await sendInteractiveList(
     message.from,
     "Choose a Sport",
-    "Pick one sport from the list below:",
-    sports,
+    "Pick from the options below",
+    sportsSections,
     "Available Sports"
   );
 
@@ -1343,6 +1391,41 @@ const sendFacilitiesQuestion = async (message, body, id) => {
 const sendEquipmentQuestion = async (message, id) => {
   let record = await findPlayer(id);
 
+  const equipmentList = [
+    { id: 1, name: "Helmet" },
+    { id: 2, name: "Bat" },
+    { id: 3, name: "Ball" },
+    { id: 4, name: "Gloves" },
+    { id: 5, name: "Pads" },
+    { id: 6, name: "Shoes" },
+    { id: 7, name: "Wickets" },
+    { id: 8, name: "Stumps" },
+    { id: 9, name: "Racket" },
+    { id: 10, name: "Net" },
+    { id: 11, name: "Jersey" },
+    { id: 12, name: "Cap" },
+    { id: 13, name: "Whistle" },
+    { id: 14, name: "Cones" },
+    { id: 15, name: "Water Bottle" }
+  ];
+
+  const sections = [
+    {
+      title: "Equipment A",
+      rows: equipmentList.slice(0, 10).map(eq => ({
+        id: `equip_${eq.id}`,
+        title: eq.name
+      }))
+    },
+    {
+      title: "Equipment B",
+      rows: equipmentList.slice(10).map(eq => ({
+        id: `equip_${eq.id}`,
+        title: eq.name
+      }))
+    }
+  ];
+
   // if (record[0].result[0].question) {
   let { sport, city, q, date, time, slots } = record[0];
 
@@ -1360,6 +1443,13 @@ const sendEquipmentQuestion = async (message, id) => {
     });
 
     await sendMessage(message.from, EquipmentQuestion);
+    // await sendInteractiveList(
+    //   message.from,
+    //   "Select Equipment",
+    //   "Pick from the options below",
+    //   sections,
+    //   "Available Equipment"
+    // );
     await sendMessage(
       message.from,
       eq
@@ -1476,7 +1566,7 @@ const sendCityQuestion = async (message, id) => {
   await sendInteractiveList(
     message.from,
     "Select City",
-    "Pick one city from the list below:",
+    "Pick from the options below",
     cities,
     "Available Cities"
   );
@@ -1528,7 +1618,7 @@ const sendVenueCityQuestion = async (message, id, city) => {
     await sendInteractiveList(
       message.from,
       "Select Venue",
-      "Pick one venue from the list below:",
+      "Pick from the options below",
       venues,
       "Available Venues"
     );
